@@ -10,17 +10,15 @@ candidatos que sobraram, em lotes.
 
 from __future__ import annotations
 
-import json
-import os
 from collections.abc import Callable
 
+from . import llm
 from .models import Candidate, Finding, Verdict
 
 # Callback de progresso: (concluidos, total) -> None
 ProgressFn = Callable[[int, int], None]
 
 BATCH_SIZE = 8
-DEFAULT_MODEL = "claude-opus-4-8"
 
 SYSTEM_PROMPT = """\
 Voce e' um engenheiro de software brasileiro revisando um codebase para a migracao \
@@ -103,20 +101,20 @@ def classify(
     use_llm: bool = True,
     model: str | None = None,
     progress: ProgressFn | None = None,
+    provider: str | None = None,
 ) -> list[Finding]:
     if not candidates:
         return []
 
-    if not use_llm or not os.environ.get("ANTHROPIC_API_KEY"):
+    provider = llm.resolve_provider(provider)
+    if not use_llm or not llm.api_key_present(provider):
         return [_regex_only_finding(c) for c in candidates]
-
     try:
-        from anthropic import Anthropic
-    except ImportError:
+        llm.ensure_available(provider)
+    except llm.LLMError:
         return [_regex_only_finding(c) for c in candidates]
 
-    client = Anthropic()
-    model = model or os.environ.get("CNPJSCAN_MODEL") or DEFAULT_MODEL
+    model = model or llm.default_model(provider)
     findings: list[Finding] = []
 
     for start in range(0, len(candidates), BATCH_SIZE):
@@ -128,17 +126,16 @@ def classify(
             f"(0 a {len(batch) - 1}).\n\n" + _render_batch(batch)
         )
         try:
-            resp = client.messages.create(
+            text = llm.complete_json(
+                provider=provider,
                 model=model,
-                max_tokens=4096,
                 system=SYSTEM_PROMPT,
-                output_config={
-                    "effort": "low",
-                    "format": {"type": "json_schema", "schema": RESULT_SCHEMA},
-                },
-                messages=[{"role": "user", "content": user_msg}],
+                user=user_msg,
+                schema=RESULT_SCHEMA,
+                effort="low",
+                max_tokens=4096,
             )
-            findings.extend(_parse_response(resp, batch))
+            findings.extend(_parse_response(text, batch))
         except Exception as exc:  # rede, rate limit, etc. — degrada para regex
             for c in batch:
                 f = _regex_only_finding(c)
@@ -150,9 +147,8 @@ def classify(
     return findings
 
 
-def _parse_response(resp, batch: list[Candidate]) -> list[Finding]:
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-    data = json.loads(text)
+def _parse_response(text: str, batch: list[Candidate]) -> list[Finding]:
+    data = llm.loads_lenient(text)
     by_index = {r["index"]: r for r in data.get("results", [])}
 
     out: list[Finding] = []

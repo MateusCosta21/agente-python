@@ -42,7 +42,8 @@ O agente **propõe, o humano decide**: nada é commitado, e a correção nos arq
 ```bash
 cd cnpj-alfa-scanner
 python3 -m pip install -e .          # instala o comando `cnpjscan` + a lib anthropic
-cp .env.example .env                 # e coloque sua ANTHROPIC_API_KEY
+python3 -m pip install -e '.[deepseek]'   # (opcional) tambem o provider DeepSeek
+cp .env.example .env                 # e coloque a chave do provider que for usar
 ```
 
 ## Uso
@@ -101,9 +102,30 @@ O `--no-llm` marca tudo como **REVISAR** (é só o filtro determinístico). Com 
 - **🟡 REVISAR** — ambíguo, precisa de decisão humana (o caso clássico: um CNPJ literal que pode ser de terceiro ou histórico e **não** deve ser tocado).
 - **🟢 OK** — falso positivo, ou já trata string, ou é um número de 14 dígitos que não é CNPJ.
 
-## Modelo usado
+## Providers e modelos
 
-Por padrão usa `claude-opus-4-8`. Você pode trocar por `claude-sonnet-5` ou `claude-haiku-4-5` (mais baratos para varreduras grandes) via `--model` ou a variável `CNPJSCAN_MODEL`.
+A camada de classificação/correção funciona com **dois providers de LLM**, escolhidos por `--provider` ou pela variável `CNPJSCAN_PROVIDER`:
+
+| Provider | Flag | Chave (`.env`) | Modelo padrão | Alternativas (`--model`) |
+|---|---|---|---|---|
+| **Anthropic** (default) | `--provider anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-4-8` | `claude-sonnet-5`, `claude-haiku-4-5` |
+| **DeepSeek** | `--provider deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` | `deepseek-reasoner` |
+
+```bash
+# Anthropic (padrão)
+cnpjscan ./backend -o relatorio.md
+
+# DeepSeek (instale o extra: pip install -e '.[deepseek]')
+cnpjscan ./backend --provider deepseek -o relatorio.md
+
+# trocar o modelo do provider escolhido
+cnpjscan ./backend --provider deepseek --model deepseek-reasoner
+```
+
+Notas:
+
+- A Anthropic usa *structured outputs* (JSON garantido por schema); a DeepSeek usa o **JSON mode** da API compatível com a da OpenAI (o schema é injetado no prompt e a resposta é validada no cliente). O `deepseek-chat` é o padrão por suportar bem o JSON mode; o `deepseek-reasoner` raciocina melhor, mas o suporte a JSON mode pode variar.
+- O modo `--no-llm` (regex puro) **não usa nenhum provider** — ótimo para demo, sem chave e sem instalar SDK de LLM.
 
 ## Aviso
 

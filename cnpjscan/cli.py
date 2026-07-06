@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import __version__
 from .classifier import classify
+from .llm import api_key_present, resolve_provider
 from .models import Verdict
 from .report import build_json, build_markdown
 from .scanner import scan_path
@@ -62,7 +63,13 @@ def main(argv: list[str] | None = None) -> int:
         "--fix-out", default="cnpj-fixes.patch", help="Arquivo .patch de saida (v2)"
     )
     parser.add_argument(
-        "--model", help="Modelo da Claude (default: claude-opus-4-8 ou CNPJSCAN_MODEL)"
+        "--provider",
+        choices=["anthropic", "deepseek"],
+        help="Provider de LLM (default: anthropic ou CNPJSCAN_PROVIDER)",
+    )
+    parser.add_argument(
+        "--model",
+        help="Modelo do provider (default: claude-opus-4-8 / deepseek-chat ou CNPJSCAN_MODEL)",
     )
     parser.add_argument("--version", action="version", version=f"cnpj-alfa-scanner {__version__}")
     args = parser.parse_args(argv)
@@ -85,15 +92,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    use_llm = not args.no_llm and bool(os.environ.get("ANTHROPIC_API_KEY"))
+    provider = resolve_provider(args.provider)
+    use_llm = not args.no_llm and api_key_present(provider)
     if not args.no_llm and not use_llm:
         print(
-            "      aviso: ANTHROPIC_API_KEY nao definido — caindo para modo regex.", file=sys.stderr
+            f"      aviso: chave do provider '{provider}' nao definida — caindo para modo regex.",
+            file=sys.stderr,
         )
 
-    print(f"[2/3] classificando ({'LLM' if use_llm else 'regex'}) ...", file=sys.stderr)
+    rotulo = f"LLM/{provider}" if use_llm else "regex"
+    print(f"[2/3] classificando ({rotulo}) ...", file=sys.stderr)
     findings = classify(
-        candidates, use_llm=use_llm, model=args.model, progress=_progress if use_llm else None
+        candidates,
+        use_llm=use_llm,
+        model=args.model,
+        provider=provider,
+        progress=_progress if use_llm else None,
     )
 
     want_fix = args.fix or args.apply
@@ -102,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     if want_fix:
         if not use_llm:
             print(
-                "erro: --fix/--apply exigem a Claude (defina ANTHROPIC_API_KEY, sem --no-llm).",
+                "erro: --fix/--apply exigem um provider de LLM (defina a chave, sem --no-llm).",
                 file=sys.stderr,
             )
             return 2
@@ -110,7 +124,9 @@ def main(argv: list[str] | None = None) -> int:
 
         print("[3/4] gerando correcoes (v2) ...", file=sys.stderr)
         try:
-            fixes = generate_fixes(findings, model=args.model, progress=_progress)
+            fixes = generate_fixes(
+                findings, model=args.model, provider=provider, progress=_progress
+            )
         except RuntimeError as exc:
             print(f"erro: {exc}", file=sys.stderr)
             return 2

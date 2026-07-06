@@ -9,12 +9,11 @@ passe `--apply` — o agente propõe, o humano decide.
 from __future__ import annotations
 
 import difflib
-import json
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import llm
 from .models import Finding, Verdict
 
 # Callback de progresso: (concluidos, total) -> None
@@ -22,7 +21,6 @@ ProgressFn = Callable[[int, int], None]
 
 WINDOW_RADIUS = 5  # linhas de contexto acima/abaixo do achado enviadas ao modelo
 MERGE_GAP = 3  # janelas a <= 3 linhas de distância são fundidas
-DEFAULT_MODEL = "claude-opus-4-8"
 
 SYSTEM_PROMPT = """\
 Voce e' um engenheiro senior corrigindo um codebase para o CNPJ alfanumerico \
@@ -97,20 +95,25 @@ def _numbered(lines: list[str], start: int, end: int) -> str:
 
 
 def generate_fixes(
-    findings: list[Finding], model: str | None = None, progress: ProgressFn | None = None
+    findings: list[Finding],
+    model: str | None = None,
+    progress: ProgressFn | None = None,
+    provider: str | None = None,
 ) -> list[Fix]:
     breaks = [f for f in findings if f.verdict == Verdict.BREAKS]
     if not breaks:
         return []
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise RuntimeError("ANTHROPIC_API_KEY nao definido — a correcao (v2) exige a Claude.")
+    provider = llm.resolve_provider(provider)
+    if not llm.api_key_present(provider):
+        raise RuntimeError(
+            f"{llm.api_key_env(provider)} nao definido — a correcao (v2) exige um provider de LLM."
+        )
     try:
-        from anthropic import Anthropic
-    except ImportError as exc:
-        raise RuntimeError("pacote 'anthropic' nao instalado (pip install anthropic).") from exc
+        llm.ensure_available(provider)
+    except llm.LLMError as exc:
+        raise RuntimeError(str(exc)) from exc
 
-    client = Anthropic()
-    model = model or os.environ.get("CNPJSCAN_MODEL") or DEFAULT_MODEL
+    model = model or llm.default_model(provider)
 
     by_file: dict[str, list[int]] = {}
     for f in breaks:
@@ -142,18 +145,16 @@ def generate_fixes(
             f"corrigido dessas linhas.\n\n{_numbered(lines, start, end)}"
         )
         try:
-            resp = client.messages.create(
+            text = llm.complete_json(
+                provider=provider,
                 model=model,
-                max_tokens=2048,
                 system=SYSTEM_PROMPT,
-                output_config={
-                    "effort": "medium",
-                    "format": {"type": "json_schema", "schema": FIX_SCHEMA},
-                },
-                messages=[{"role": "user", "content": user_msg}],
+                user=user_msg,
+                schema=FIX_SCHEMA,
+                effort="medium",
+                max_tokens=2048,
             )
-            text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-            data = json.loads(text)
+            data = llm.loads_lenient(text)
         except Exception as exc:  # rede/parse — pula esta janela
             fixes.append(
                 Fix(
