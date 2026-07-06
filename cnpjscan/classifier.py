@@ -91,7 +91,7 @@ def _regex_only_finding(c: Candidate) -> Finding:
         candidate=c,
         verdict=Verdict.REVIEW,
         reason=f"[modo regex, sem LLM] {c.rule_desc}",
-        suggested_fix="Revisar manualmente ou rodar com ANTHROPIC_API_KEY para classificacao automatica.",
+        suggested_fix="Revisar manualmente, ou rodar com um provider de LLM (ANTHROPIC_API_KEY ou DEEPSEEK_API_KEY) para classificacao automatica.",
         confidence="regex",
     )
 

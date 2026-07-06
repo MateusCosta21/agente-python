@@ -2,7 +2,7 @@
 
 Agente que varre um codebase inteiro procurando **suposições de que o CNPJ é só número** — as que quebram com o **CNPJ alfanumérico** (Instrução Normativa RFB 2.229/2024, em vigor a partir de **julho/2026**).
 
-Não é um `find & replace`. É análise estática determinística **+** uma camada de IA (Claude) que entende o contexto de cada ocorrência e decide se ela realmente quebra — distinguindo código de produção de teste, dado histórico e CNPJ de terceiro — com justificativa e sugestão de correção.
+Não é um `find & replace`. É análise estática determinística **+** uma camada de IA (Claude **ou** DeepSeek) que entende o contexto de cada ocorrência e decide se ela realmente quebra — distinguindo código de produção de teste, dado histórico e CNPJ de terceiro — com justificativa e sugestão de correção.
 
 ## Por que isso importa
 
@@ -25,15 +25,15 @@ Ou seja: qualquer sistema brasileiro que valida, armazena ou mascara CNPJ tem, a
 
 ```
   1. DESCOBERTA        2. CLASSIFICAÇÃO        3. CORREÇÃO (v2)       4. RELATÓRIO
-  (determinística)      (Claude / LLM)          (Claude / LLM)         (markdown/JSON)
-  regex + AST     -->   BREAKS/SAFE/REVIEW  --> patch aplicável   -->  + diffs
-  sem token             + motivo + fix          (human-in-the-loop)     (o print do post)
+  (determinística)      (Claude / DeepSeek)     (Claude / DeepSeek)    (markdown/JSON)
+  regex          -->   BREAKS/SAFE/REVIEW  --> patch aplicável   -->  + diffs
+  sem token             + motivo + fix          (human-in-the-loop)     legível
 ```
 
-- **Passo 1 é regex puro** — rápido, sem alucinação, sem custo de token. Corta o volume.
-- **Passo 2 usa a Claude** só nos candidatos que sobraram, em lotes, com *structured outputs* (JSON garantido).
+- **Passo 1 é regex determinístico** — rápido, sem alucinação, sem custo de token. Corta o volume e ignora bundles minificados/compilados (não é código-fonte revisável).
+- **Passo 2 usa a IA** (Claude ou DeepSeek) só nos candidatos que sobraram, em lotes, com saída JSON estruturada.
 - **Passo 3 (v2)** gera o código corrigido das QUEBRAS e monta um `.patch` aplicável com `git apply`. **Dry-run por padrão** — só escreve nos arquivos com `--apply`.
-- **Passo 4** é um relatório legível, agora com os diffs propostos.
+- **Passo 4** é um relatório legível, com os diffs propostos.
 
 O agente **propõe, o humano decide**: nada é commitado, e a correção nos arquivos é opt-in.
 
@@ -41,7 +41,7 @@ O agente **propõe, o humano decide**: nada é commitado, e a correção nos arq
 
 ```bash
 cd cnpj-alfa-scanner
-python3 -m pip install -e .          # instala o comando `cnpjscan` + a lib anthropic
+python3 -m pip install -e .          # comando `cnpjscan` + provider Anthropic (Claude)
 python3 -m pip install -e '.[deepseek]'   # (opcional) tambem o provider DeepSeek
 cp .env.example .env                 # e coloque a chave do provider que for usar
 ```
@@ -88,11 +88,41 @@ O comando sai com **código 1** se encontrar algo que quebra (útil como *gate* 
 
 ## Exemplo
 
-O diretório `examples/` tem arquivos com problemas plantados (PHP, migration Laravel, componente Angular). Rode:
+O diretório `examples/` tem arquivos com problemas plantados (PHP, migration Laravel, componente Angular) — para você ver a ferramenta funcionando sem apontar para código real. Rode (sem chave, sem IA):
 
 ```bash
-python3 -m cnpjscan examples --no-llm -o /tmp/relatorio.md
+python3 -m cnpjscan examples --no-llm -o relatorio.md
 ```
+
+A varredura determinística encontra **8 pontos suspeitos**, cada um com arquivo, linha, regra e o trecho de código destacado:
+
+```
+### examples/2024_01_01_create_empresas_table.php:15 — HIGH · coluna-numerica
+### examples/legacy_cnpj.php:9                        — HIGH · regex-numerico
+### examples/legacy_cnpj.php:16                       — HIGH · checagem-digito
+### examples/legacy_cnpj.php:25                       — HIGH · cast-inteiro
+### examples/cnpj-mask.component.ts:14               — HIGH · regex-mascara-numerica
+### examples/cnpj-mask.component.ts:10               — MEDIUM · mascara-input-digitos
+### examples/legacy_cnpj.php:29                       — LOW · cnpj-hardcoded-formatado
+### examples/cnpj-mask.component.ts:10               — LOW · cnpj-hardcoded-formatado
+```
+
+Cada achado vem com contexto e a explicação da regra. Exemplo (a migration Laravel):
+
+````markdown
+### `examples/2024_01_01_create_empresas_table.php:15` — HIGH · `coluna-numerica`
+
+**Por que:** Coluna de banco numérica para CNPJ — precisa virar VARCHAR/string.
+
+```
+     13|             $table->string('razao_social');
+     14|             // coluna numerica para CNPJ: quebra com letras, precisa virar string
+>>   15|             $table->unsignedBigInteger('cnpj')->unique();
+     16|             $table->timestamps();
+```
+````
+
+Rodando **com um provider configurado** (`cnpjscan examples`), cada um desses 8 pontos é classificado em 🔴 QUEBRA / 🟡 REVISAR / 🟢 OK, com justificativa e sugestão de correção no framework do trecho.
 
 ## Como funciona a classificação
 
