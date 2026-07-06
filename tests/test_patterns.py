@@ -37,3 +37,19 @@ def test_checagem_digito_casa_funcoes_conhecidas():
     regra = next(r for r in RULES if r.id == "checagem-digito")
     assert regra.pattern.search("if (!ctype_digit($clean)) {")
     assert regra.pattern.search("cnpj.isdigit()")
+
+
+def test_coluna_numerica_casa_migration_e_sql_real():
+    regra = next(r for r in RULES if r.id == "coluna-numerica")
+    assert regra.pattern.search("$table->unsignedBigInteger('cnpj')")
+    assert regra.pattern.search("$table->integer('cnpj')")
+    assert regra.pattern.search("cnpj BIGINT NOT NULL")
+
+
+def test_coluna_numerica_nao_casa_palavra_em_prosa():
+    # falsos positivos que a versao antiga pegava: palavra inglesa em string/lista
+    regra = next(r for r in RULES if r.id == "coluna-numerica")
+    assert not regra.pattern.search('"message" => "Maximun Call Must Be Integer"')
+    assert not regra.pattern.search('["name", "cnpj", "email", "number", "status"]')
+    # tipo string (correto) tambem nao deve casar
+    assert not regra.pattern.search("$table->string('cnpj', 14)")

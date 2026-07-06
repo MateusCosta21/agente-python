@@ -24,8 +24,8 @@ class Rule:
     languages: frozenset[str] = frozenset()
 
 
-def _r(p: str) -> re.Pattern:
-    return re.compile(p, re.IGNORECASE)
+def _r(p: str, *, ignorecase: bool = True) -> re.Pattern[str]:
+    return re.compile(p, re.IGNORECASE if ignorecase else 0)
 
 
 RULES: list[Rule] = [
@@ -62,11 +62,17 @@ RULES: list[Rule] = [
     ),
     Rule(
         id="coluna-numerica",
-        desc="Coluna de banco numerica para CNPJ (bigInteger/BIGINT/NUMERIC/DECIMAL) — precisa virar VARCHAR/string",
+        desc="Coluna de banco numerica para CNPJ (bigInteger('cnpj')/BIGINT/NUMERIC/DECIMAL) — precisa virar VARCHAR/string",
         severity=Severity.HIGH,
+        # Case-sensitive de proposito: casa metodos de schema builder (que exigem
+        # parenteses, ex.: bigInteger('cnpj')) e tipos SQL em MAIUSCULO — e NAO a
+        # palavra inglesa "Integer"/"Number" em strings de mensagem ou listas de campos.
         pattern=_r(
-            r"\b(?:unsignedBigInteger|bigInteger|unsignedInteger|integer|bigint|"
-            r"BIGINT|INTEGER|NUMERIC|NUMBER|DECIMAL|decimal|numeric|Long|BigInteger)\b"
+            r"(?:unsignedBigInteger|unsignedInteger|bigInteger|mediumInteger|"
+            r"smallInteger|tinyInteger|integer|bigIncrements|increments|"
+            r"unsignedDecimal|decimal)\s*\("
+            r"|\b(?:BIGINT|INT|INTEGER|NUMERIC|DECIMAL|SMALLINT|MEDIUMINT|TINYINT|SERIAL|BIGSERIAL)\b",
+            ignorecase=False,
         ),
         requires_cnpj=True,
         languages=frozenset({".php", ".sql", ".rb", ".py", ".java", ".cs", ".ts", ".js"}),

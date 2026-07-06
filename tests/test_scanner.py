@@ -65,6 +65,20 @@ def test_scan_path_pula_diretorios_ignorados(tmp_path: Path):
     assert not any("vendor" in a for a in arquivos)
 
 
+def test_scan_file_ignora_bundle_minificado(tmp_path: Path):
+    f = tmp_path / "bundle.js"
+    linha_minificada = "var x=" + "0" * 6000 + ";"
+    # sem o guard, a linha do integer('cnpj') geraria um candidato
+    f.write_text(f"// cnpj\n$table->integer('cnpj');\n{linha_minificada}\n", encoding="utf-8")
+    assert scan_file(f) == []
+
+
+def test_scan_file_ignora_min_js_por_nome(tmp_path: Path):
+    f = tmp_path / "vendor.min.js"
+    f.write_text("cnpj $table->integer('cnpj')", encoding="utf-8")
+    assert scan_file(f) == []
+
+
 def test_scan_file_nao_duplica_mesma_regra_na_linha(tmp_path: Path):
     f = tmp_path / "dup.php"
     f.write_text("// cnpj\n$x = intval($cnpj); $y = intval($cnpj);\n", encoding="utf-8")

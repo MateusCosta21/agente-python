@@ -51,6 +51,7 @@ SKIP_DIRS = {
 
 CONTEXT_RADIUS = 3
 MAX_FILE_BYTES = 2_000_000  # ignora arquivos gigantes (minificados etc.)
+MAX_LINE_BYTES = 5_000  # linha maior que isso => bundle minificado/gerado, ignora
 
 
 def _ext_of(path: Path) -> str:
@@ -75,6 +76,9 @@ def scan_file(path: Path) -> list[Candidate]:
     rules = rules_for(ext)
     if not rules:
         return []
+    # arquivos declaradamente minificados nao sao codigo-fonte revisavel
+    if path.name.endswith((".min.js", ".min.css")):
+        return []
     try:
         if path.stat().st_size > MAX_FILE_BYTES:
             return []
@@ -83,6 +87,9 @@ def scan_file(path: Path) -> list[Candidate]:
         return []
 
     lines = text.splitlines()
+    # linha gigantesca => bundle minificado/gerado (ex.: webpack chunk); ignora
+    if any(len(ln) > MAX_LINE_BYTES for ln in lines):
+        return []
     found: list[Candidate] = []
     seen: set[tuple[str, int, str]] = set()
 
