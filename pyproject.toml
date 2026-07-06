@@ -1,6 +1,6 @@
 [project]
 name = "cnpj-alfa-scanner"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agente que varre um codebase em busca de suposicoes de que CNPJ e' so' numero, que quebram com o CNPJ alfanumerico (IN RFB 2.229/2024)."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -24,15 +24,18 @@ Ou seja: qualquer sistema brasileiro que valida, armazena ou mascara CNPJ tem, a
 ## Arquitetura (híbrida, de propósito)
 
 ```
-  1. DESCOBERTA        2. CLASSIFICAÇÃO           3. RELATÓRIO
-  (determinística)      (Claude / LLM)             (markdown/JSON)
-  regex + AST     -->   BREAKS / SAFE / REVIEW  -->  agrupado por veredito
-  sem token             + motivo + fix                (o print do post)
+  1. DESCOBERTA        2. CLASSIFICAÇÃO        3. CORREÇÃO (v2)       4. RELATÓRIO
+  (determinística)      (Claude / LLM)          (Claude / LLM)         (markdown/JSON)
+  regex + AST     -->   BREAKS/SAFE/REVIEW  --> patch aplicável   -->  + diffs
+  sem token             + motivo + fix          (human-in-the-loop)     (o print do post)
 ```
 
 - **Passo 1 é regex puro** — rápido, sem alucinação, sem custo de token. Corta o volume.
 - **Passo 2 usa a Claude** só nos candidatos que sobraram, em lotes, com *structured outputs* (JSON garantido).
-- **Passo 3** é um relatório legível. Nada é alterado no seu código — o agente é read-only por design (human-in-the-loop).
+- **Passo 3 (v2)** gera o código corrigido das QUEBRAS e monta um `.patch` aplicável com `git apply`. **Dry-run por padrão** — só escreve nos arquivos com `--apply`.
+- **Passo 4** é um relatório legível, agora com os diffs propostos.
+
+O agente **propõe, o humano decide**: nada é commitado, e a correção nos arquivos é opt-in.
 
 ## Instalação
 
@@ -57,6 +60,22 @@ cnpjscan ./backend -o relatorio.md --json achados.json
 # Modelo mais barato para codebases grandes
 cnpjscan ./backend --model claude-haiku-4-5
 ```
+
+### v2 — correção automática (human-in-the-loop)
+
+```bash
+# Gera o código corrigido das QUEBRAS e um .patch — SEM tocar nos arquivos (dry-run)
+cnpjscan ./backend --fix                       # escreve cnpj-fixes.patch + diffs no relatório
+
+# Revise e aplique você mesmo
+git apply cnpj-fixes.patch
+
+# Ou deixe o agente aplicar direto no working tree (continua sem commitar)
+cnpjscan ./backend --apply
+git diff                                        # revise antes de commitar
+```
+
+O `--fix`/`--apply` só corrige o que foi classificado como **🔴 QUEBRA** — nunca mexe nos itens **🟡 REVISAR** (CNPJ de terceiro, dado histórico), que ficam para decisão humana. A correção mantém compatibilidade com o CNPJ **numérico legado** (aceita os dois formatos).
 
 Sem instalar, dá pra rodar direto do repo:
 

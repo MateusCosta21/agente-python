@@ -21,7 +21,14 @@ def _sort_key(f: Finding):
     return (_VERDICT_ORDER[f.verdict], _SEV_ORDER[f.candidate.severity], f.candidate.file, f.candidate.line)
 
 
-def build_markdown(findings: list[Finding], root: str, used_llm: bool) -> str:
+def build_markdown(
+    findings: list[Finding],
+    root: str,
+    used_llm: bool,
+    fixes=None,
+    patch: str | None = None,
+    applied: bool = False,
+) -> str:
     now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     verdict_counts = Counter(f.verdict for f in findings)
     rule_counts = Counter(f.candidate.rule_id for f in findings if f.verdict == Verdict.BREAKS)
@@ -51,6 +58,27 @@ def build_markdown(findings: list[Finding], root: str, used_llm: bool) -> str:
         for rule_id, n in rule_counts.most_common():
             lines.append(f"| `{rule_id}` | {n} |")
         lines.append("")
+
+    if fixes:
+        real = [fx for fx in fixes if fx.original != fx.fixed]
+        status = "APLICADAS no working tree" if applied else "propostas (dry-run — nada foi escrito)"
+        lines.append(f"## 🛠️ Correções {status} ({len(real)})")
+        lines.append("")
+        for fx in real:
+            lines.append(f"### `{fx.file}:{fx.start_line}-{fx.end_line}`")
+            lines.append("")
+            if fx.note:
+                lines.append(f"**Nota:** {fx.note}")
+                lines.append("")
+        if patch and patch.strip():
+            lines.append("### Patch consolidado")
+            lines.append("")
+            lines.append("Aplique com `git apply cnpj-fixes.patch` (revise antes):")
+            lines.append("")
+            lines.append("```diff")
+            lines.append(patch.rstrip("\n"))
+            lines.append("```")
+            lines.append("")
 
     for verdict in (Verdict.BREAKS, Verdict.REVIEW, Verdict.SAFE):
         group = sorted((f for f in findings if f.verdict == verdict), key=_sort_key)
