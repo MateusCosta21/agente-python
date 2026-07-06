@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections import Counter
 from pathlib import Path
 
 from . import __version__
-from .scanner import scan_path
 from .classifier import classify
-from .report import build_markdown, build_json
 from .models import Verdict
+from .report import build_json, build_markdown
+from .scanner import scan_path
 
 
 def _load_dotenv() -> None:
     """Carrega um .env simples do diretorio atual, sem dependencia externa."""
-    import os
-
     env = Path(".env")
     if not env.exists():
         return
@@ -42,13 +41,29 @@ def main(argv: list[str] | None = None) -> int:
         description="Varre um codebase em busca de pontos que quebram com o CNPJ alfanumerico.",
     )
     parser.add_argument("path", help="Arquivo ou diretorio a varrer")
-    parser.add_argument("-o", "--out", default="relatorio-cnpj.md", help="Arquivo markdown de saida")
-    parser.add_argument("--json", dest="json_out", help="Tambem grava os findings em JSON neste caminho")
+    parser.add_argument(
+        "-o", "--out", default="relatorio-cnpj.md", help="Arquivo markdown de saida"
+    )
+    parser.add_argument(
+        "--json", dest="json_out", help="Tambem grava os findings em JSON neste caminho"
+    )
     parser.add_argument("--no-llm", action="store_true", help="So' regex, sem chamar a Claude")
-    parser.add_argument("--fix", action="store_true", help="v2: gera correcoes para as QUEBRAS e um .patch (dry-run)")
-    parser.add_argument("--apply", action="store_true", help="v2: aplica as correcoes no working tree (implica --fix)")
-    parser.add_argument("--fix-out", default="cnpj-fixes.patch", help="Arquivo .patch de saida (v2)")
-    parser.add_argument("--model", help="Modelo da Claude (default: claude-opus-4-8 ou CNPJSCAN_MODEL)")
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="v2: gera correcoes para as QUEBRAS e um .patch (dry-run)",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="v2: aplica as correcoes no working tree (implica --fix)",
+    )
+    parser.add_argument(
+        "--fix-out", default="cnpj-fixes.patch", help="Arquivo .patch de saida (v2)"
+    )
+    parser.add_argument(
+        "--model", help="Modelo da Claude (default: claude-opus-4-8 ou CNPJSCAN_MODEL)"
+    )
     parser.add_argument("--version", action="version", version=f"cnpj-alfa-scanner {__version__}")
     args = parser.parse_args(argv)
 
@@ -70,23 +85,29 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    import os
-
     use_llm = not args.no_llm and bool(os.environ.get("ANTHROPIC_API_KEY"))
     if not args.no_llm and not use_llm:
-        print("      aviso: ANTHROPIC_API_KEY nao definido — caindo para modo regex.", file=sys.stderr)
+        print(
+            "      aviso: ANTHROPIC_API_KEY nao definido — caindo para modo regex.", file=sys.stderr
+        )
 
     print(f"[2/3] classificando ({'LLM' if use_llm else 'regex'}) ...", file=sys.stderr)
-    findings = classify(candidates, use_llm=use_llm, model=args.model, progress=_progress if use_llm else None)
+    findings = classify(
+        candidates, use_llm=use_llm, model=args.model, progress=_progress if use_llm else None
+    )
 
     want_fix = args.fix or args.apply
     fixes = None
     patch = None
     if want_fix:
         if not use_llm:
-            print("erro: --fix/--apply exigem a Claude (defina ANTHROPIC_API_KEY, sem --no-llm).", file=sys.stderr)
+            print(
+                "erro: --fix/--apply exigem a Claude (defina ANTHROPIC_API_KEY, sem --no-llm).",
+                file=sys.stderr,
+            )
             return 2
-        from .fixer import generate_fixes, unified_patch, apply_fix_to_text
+        from .fixer import apply_fix_to_text, generate_fixes, unified_patch
+
         print("[3/4] gerando correcoes (v2) ...", file=sys.stderr)
         try:
             fixes = generate_fixes(findings, model=args.model, progress=_progress)
@@ -108,11 +129,16 @@ def main(argv: list[str] | None = None) -> int:
             for file, ff in by_file.items():
                 src = Path(file).read_text(encoding="utf-8", errors="ignore")
                 Path(file).write_text(apply_fix_to_text(src, ff), encoding="utf-8")
-            print(f"      aplicadas em {len(by_file)} arquivo(s). Revise com `git diff`.", file=sys.stderr)
+            print(
+                f"      aplicadas em {len(by_file)} arquivo(s). Revise com `git diff`.",
+                file=sys.stderr,
+            )
 
     step = "[4/4]" if want_fix else "[3/3]"
     print(f"{step} gerando relatorio ...", file=sys.stderr)
-    md = build_markdown(findings, args.path, used_llm=use_llm, fixes=fixes, patch=patch, applied=args.apply)
+    md = build_markdown(
+        findings, args.path, used_llm=use_llm, fixes=fixes, patch=patch, applied=args.apply
+    )
     Path(args.out).write_text(md, encoding="utf-8")
 
     if args.json_out:

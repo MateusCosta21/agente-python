@@ -11,13 +11,17 @@ from __future__ import annotations
 import difflib
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from .models import Finding, Verdict
 
-WINDOW_RADIUS = 5   # linhas de contexto acima/abaixo do achado enviadas ao modelo
-MERGE_GAP = 3       # janelas a <= 3 linhas de distância são fundidas
+# Callback de progresso: (concluidos, total) -> None
+ProgressFn = Callable[[int, int], None]
+
+WINDOW_RADIUS = 5  # linhas de contexto acima/abaixo do achado enviadas ao modelo
+MERGE_GAP = 3  # janelas a <= 3 linhas de distância são fundidas
 DEFAULT_MODEL = "claude-opus-4-8"
 
 SYSTEM_PROMPT = """\
@@ -64,8 +68,8 @@ FIX_SCHEMA = {
 @dataclass
 class Fix:
     file: str
-    start_line: int   # 1-indexed, inclusivo
-    end_line: int     # 1-indexed, inclusivo
+    start_line: int  # 1-indexed, inclusivo
+    end_line: int  # 1-indexed, inclusivo
     original: str
     fixed: str
     note: str
@@ -93,7 +97,7 @@ def _numbered(lines: list[str], start: int, end: int) -> str:
 
 
 def generate_fixes(
-    findings: list[Finding], model: str | None = None, progress=None
+    findings: list[Finding], model: str | None = None, progress: ProgressFn | None = None
 ) -> list[Fix]:
     breaks = [f for f in findings if f.verdict == Verdict.BREAKS]
     if not breaks:
@@ -112,67 +116,68 @@ def generate_fixes(
     for f in breaks:
         by_file.setdefault(f.candidate.file, []).append(f.candidate.line)
 
-    fixes: list[Fix] = []
-    total = sum(len(_windows_for_file_safe(fp, lns)) for fp, lns in by_file.items())
-    done = 0
-
+    # Le cada arquivo uma unica vez e ja' calcula as janelas de correcao,
+    # para nao reabrir os arquivos so' para contar o total do progresso.
+    plan: list[tuple[str, list[str], int, int]] = []
     for file, finding_lines in by_file.items():
         try:
-            src = Path(file).read_text(encoding="utf-8", errors="ignore")
+            lines = Path(file).read_text(encoding="utf-8", errors="ignore").splitlines()
         except OSError:
             continue
-        lines = src.splitlines()
         for start, end in _windows_for_file(lines, finding_lines):
-            if progress:
-                progress(done, total)
-            done += 1
-            original_block = "\n".join(lines[start - 1 : end])
-            user_msg = (
-                f"Arquivo: {file}\n"
-                f"Corrija o trecho abaixo (linhas {start}-{end}). Devolva o codigo "
-                f"corrigido dessas linhas.\n\n{_numbered(lines, start, end)}"
-            )
-            try:
-                resp = client.messages.create(
-                    model=model,
-                    max_tokens=2048,
-                    system=SYSTEM_PROMPT,
-                    output_config={
-                        "effort": "medium",
-                        "format": {"type": "json_schema", "schema": FIX_SCHEMA},
-                    },
-                    messages=[{"role": "user", "content": user_msg}],
-                )
-                text = "".join(
-                    b.text for b in resp.content if getattr(b, "type", None) == "text"
-                )
-                data = json.loads(text)
-            except Exception as exc:  # rede/parse — pula esta janela
-                fixes.append(
-                    Fix(file, start, end, original_block, original_block,
-                        f"[falha ao gerar correcao: {type(exc).__name__}]")
-                )
-                continue
+            plan.append((file, lines, start, end))
 
-            if not data.get("changed"):
-                continue
-            fixed_block = data.get("fixed_code", "").rstrip("\n")
-            if fixed_block and fixed_block != original_block:
-                fixes.append(
-                    Fix(file, start, end, original_block, fixed_block, data.get("note", "").strip())
+    fixes: list[Fix] = []
+    total = len(plan)
+    done = 0
+
+    for file, lines, start, end in plan:
+        if progress:
+            progress(done, total)
+        done += 1
+        original_block = "\n".join(lines[start - 1 : end])
+        user_msg = (
+            f"Arquivo: {file}\n"
+            f"Corrija o trecho abaixo (linhas {start}-{end}). Devolva o codigo "
+            f"corrigido dessas linhas.\n\n{_numbered(lines, start, end)}"
+        )
+        try:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                output_config={
+                    "effort": "medium",
+                    "format": {"type": "json_schema", "schema": FIX_SCHEMA},
+                },
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+            data = json.loads(text)
+        except Exception as exc:  # rede/parse — pula esta janela
+            fixes.append(
+                Fix(
+                    file,
+                    start,
+                    end,
+                    original_block,
+                    original_block,
+                    f"[falha ao gerar correcao: {type(exc).__name__}]",
                 )
+            )
+            continue
+
+        if not data.get("changed"):
+            continue
+        fixed_block = data.get("fixed_code", "").rstrip("\n")
+        if fixed_block and fixed_block != original_block:
+            fixes.append(
+                Fix(file, start, end, original_block, fixed_block, data.get("note", "").strip())
+            )
 
     if progress:
         progress(total, total)
     return fixes
-
-
-def _windows_for_file_safe(file: str, finding_lines: list[int]) -> list[tuple[int, int]]:
-    try:
-        lines = Path(file).read_text(encoding="utf-8", errors="ignore").splitlines()
-    except OSError:
-        return []
-    return _windows_for_file(lines, finding_lines)
 
 
 def apply_fix_to_text(src: str, fixes_for_file: list[Fix]) -> str:

@@ -18,7 +18,7 @@ class Rule:
     id: str
     desc: str
     severity: Severity
-    pattern: re.Pattern
+    pattern: re.Pattern[str]
     requires_cnpj: bool
     # extensoes as quais a regra se aplica; vazio = todas
     languages: frozenset[str] = frozenset()

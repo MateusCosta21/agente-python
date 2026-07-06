@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 
-from .models import Candidate, Finding, Verdict, Severity
+from .models import Candidate, Finding, Verdict
+
+# Callback de progresso: (concluidos, total) -> None
+ProgressFn = Callable[[int, int], None]
 
 BATCH_SIZE = 8
 DEFAULT_MODEL = "claude-opus-4-8"
@@ -98,7 +102,7 @@ def classify(
     candidates: list[Candidate],
     use_llm: bool = True,
     model: str | None = None,
-    progress=None,
+    progress: ProgressFn | None = None,
 ) -> list[Finding]:
     if not candidates:
         return []

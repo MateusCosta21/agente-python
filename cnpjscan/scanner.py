@@ -13,16 +13,40 @@ from .patterns import rules_for
 
 # Extensoes de codigo que vale a pena varrer.
 SCAN_EXTENSIONS = {
-    ".php", ".py", ".rb", ".java", ".cs", ".go", ".rs",
-    ".ts", ".tsx", ".js", ".jsx", ".vue",
-    ".sql", ".sqlx",
-    ".html", ".blade.php",
+    ".php",
+    ".py",
+    ".rb",
+    ".java",
+    ".cs",
+    ".go",
+    ".rs",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".vue",
+    ".sql",
+    ".sqlx",
+    ".html",
+    ".blade.php",
 }
 
 # Diretorios que nunca interessam.
 SKIP_DIRS = {
-    ".git", "node_modules", "vendor", "dist", "build", "__pycache__",
-    ".venv", "venv", ".next", ".nuxt", "coverage", "storage", ".idea", ".vscode",
+    ".git",
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".next",
+    ".nuxt",
+    "coverage",
+    "storage",
+    ".idea",
+    ".vscode",
 }
 
 CONTEXT_RADIUS = 3

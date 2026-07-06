@@ -5,8 +5,13 @@ from __future__ import annotations
 import datetime as _dt
 import json
 from collections import Counter
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-from .models import Finding, Verdict, Severity
+from .models import Finding, Severity, Verdict
+
+if TYPE_CHECKING:
+    from .fixer import Fix
 
 _VERDICT_LABEL = {
     Verdict.BREAKS: "🔴 QUEBRA",
@@ -18,14 +23,19 @@ _SEV_ORDER = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2}
 
 
 def _sort_key(f: Finding):
-    return (_VERDICT_ORDER[f.verdict], _SEV_ORDER[f.candidate.severity], f.candidate.file, f.candidate.line)
+    return (
+        _VERDICT_ORDER[f.verdict],
+        _SEV_ORDER[f.candidate.severity],
+        f.candidate.file,
+        f.candidate.line,
+    )
 
 
 def build_markdown(
     findings: list[Finding],
     root: str,
     used_llm: bool,
-    fixes=None,
+    fixes: Sequence[Fix] | None = None,
     patch: str | None = None,
     applied: bool = False,
 ) -> str:
@@ -39,7 +49,7 @@ def build_markdown(
     lines.append(f"- **Alvo varrido:** `{root}`")
     lines.append(f"- **Data:** {now}")
     lines.append(f"- **Classificacao:** {'Claude (LLM)' if used_llm else 'somente regex'}")
-    lines.append(f"- **Referencia:** IN RFB 2.229/2024 — CNPJ alfanumerico a partir de julho/2026")
+    lines.append("- **Referencia:** IN RFB 2.229/2024 — CNPJ alfanumerico a partir de julho/2026")
     lines.append("")
     lines.append("## Resumo")
     lines.append("")
@@ -61,7 +71,9 @@ def build_markdown(
 
     if fixes:
         real = [fx for fx in fixes if fx.original != fx.fixed]
-        status = "APLICADAS no working tree" if applied else "propostas (dry-run — nada foi escrito)"
+        status = (
+            "APLICADAS no working tree" if applied else "propostas (dry-run — nada foi escrito)"
+        )
         lines.append(f"## 🛠️ Correções {status} ({len(real)})")
         lines.append("")
         for fx in real:

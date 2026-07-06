@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from enum import Enum
+from typing import Any
 
 
 class Severity(str, Enum):
-    HIGH = "HIGH"      # quase certo que quebra com alfanumerico
+    HIGH = "HIGH"  # quase certo que quebra com alfanumerico
     MEDIUM = "MEDIUM"  # provavel, depende do contexto
-    LOW = "LOW"        # vale revisar
+    LOW = "LOW"  # vale revisar
 
 
 class Verdict(str, Enum):
     BREAKS = "BREAKS"  # quebra com CNPJ alfanumerico, precisa de correcao
-    SAFE = "SAFE"      # nao quebra / falso positivo
+    SAFE = "SAFE"  # nao quebra / falso positivo
     REVIEW = "REVIEW"  # ambiguo, humano precisa decidir
 
 
@@ -45,7 +46,7 @@ class Finding:
     suggested_fix: str
     confidence: str  # "alta" | "media" | "baixa" | "regex"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["candidate"]["severity"] = self.candidate.severity.value
         d["verdict"] = self.verdict.value
